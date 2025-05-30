@@ -1,0 +1,377 @@
+#include <iostream>
+#include <stdexcept>     // Для використання стандартних винятків
+#include <cctype>        // Для функцій роботи з символами (наприклад, toupper)
+
+using namespace std;
+
+template <typename T>
+class Transformer {
+public:
+    virtual T operator()(const T& ch) const = 0; // Чисто віртуальний оператор трансформації символу
+    virtual ~Transformer() = default;           // Віртуальний деструктор
+};
+
+// Перетворює символ на верхній регістр
+class ToUpper : public Transformer<char> {
+public:
+    char operator()(const char& ch) const override { return toupper(ch); }
+};
+
+// Перетворює символ на нижній регістр
+class ToLower : public Transformer<char> {
+public:
+    char operator()(const char& ch) const override { return tolower(ch); }
+};
+
+// Замінює символ на '*'
+class ToStar : public Transformer<char> {
+public:
+    char operator()(const char& ch) const override { return '*'; }
+};
+
+// Зсуває символ на один вперед у таблиці ASCII
+struct Shift { char operator()(char ch) const { return ch + 1; } };
+
+// Замінює символ на 'x'
+struct ToX { char operator()(char ch) const { return 'x'; } };
+
+template <typename T>
+class String {
+private:
+    size_t length_;  
+    T* data_;        // Динамічний масив символів
+
+    // Ініціалізація об'єкта з C-рядка
+    void initFromCString(const T* str) {
+        length_ = 0;
+        while (str && str[length_] != T()) length_++; 
+        data_ = new T[length_ + 1];                   // Виділення пам'яті з урахуванням термінального символу
+        for (size_t i = 0; i < length_; i++) data_[i] = str[i]; // Копіювання символів
+        data_[length_] = T();                         // Завершальний символ
+    }
+
+public:
+    // Конструктори:
+    // Створює порожній рядок
+    String() : length_(0), data_(new T[1]) { data_[0] = T(); }
+    
+    // Копіювання
+    String(const String& other) : length_(other.length_), data_(new T[length_ + 1]) {
+        for (size_t i = 0; i < length_; i++) data_[i] = other.data_[i];
+        data_[length_] = T();
+    }
+    
+    // Створює рядок з певної кількості однакових символів
+    String(T ch, size_t count) : length_(count), data_(new T[length_ + 1]) {
+        for (size_t i = 0; i < length_; i++) data_[i] = ch;
+        data_[length_] = T();
+    }
+    
+    // C-рядка
+    String(const T* str) { initFromCString(str); }
+    
+    // З вказівників на початок і кінець діапазону символів
+    String(const T* begin, const T* end) {
+        // Перевірка коректності вказівників
+        if (!begin || !end || begin > end) throw invalid_argument("Invalid pointers"); 
+        length_ = end - begin;
+        data_ = new T[length_ + 1];
+        for (size_t i = 0; i < length_; i++) data_[i] = begin[i];
+        data_[length_] = T();
+    }
+    
+    // Створення рядка з масиву іншого типу з перетворенням
+    template<typename U>
+    String(const U* other) {
+        length_ = 0;
+        while (other && other[length_] != U()) length_++;
+        data_ = new T[length_ + 1];
+        for (size_t i = 0; i < length_; i++) data_[i] = static_cast<T>(other[i]);
+        data_[length_] = T();
+    }
+    
+    // Оператор присвоєння
+    String& operator=(const String& other) {
+        if (this != &other) { // Перевірка на самоприсвоєння
+            delete[] data_; // Звільнення старої пам'яті
+            length_ = other.length_;
+            data_ = new T[length_ + 1];
+            for (size_t i = 0; i < length_; i++) data_[i] = other.data_[i];
+            data_[length_] = T();
+        }
+        return *this; 
+    }
+    
+      // Оператор доступу до елемента за індексом (з можливістю зміни)
+    T& operator[](size_t pos) {
+        if (pos >= length_) throw out_of_range("Index out of bounds"); // Перевірка виходу за межі
+        return data_[pos]; 
+    }
+    
+    // Оператор доступу до елемента за індексом (тільки для читання)
+    const T& operator[](size_t pos) const {
+        if (pos >= length_) throw out_of_range("Index out of bounds");
+        return data_[pos];
+    }
+    
+    // Оператор додавання символа до кінця рядка 
+    String& operator+=(T ch) {
+        T* newData = new T[length_ + 2];
+        for (size_t i = 0; i < length_; i++) newData[i] = data_[i]; 
+        newData[length_] = ch;
+        newData[length_ + 1] = T();
+        delete[] data_;
+        data_ = newData;                // Перенаправлення на нові дані
+        length_++;                      // Збільшення довжини
+        return *this;
+    }
+    
+    // Оператор додавання іншого рядка до поточного 
+    String& operator+=(const String& other) {
+        size_t newLen = length_ + other.length_;           // Нова довжина
+        T* newData = new T[newLen + 1];
+        for (size_t i = 0; i < length_; i++) newData[i] = data_[i];
+        for (size_t i = 0; i < other.length_; i++) newData[length_ + i] = other.data_[i];
+        newData[newLen] = T();
+        delete[] data_;
+        data_ = newData;                                   // Оновлення вказівника
+        length_ = newLen;                                  // Оновлення довжини
+        return *this;
+    }
+    
+    // Оператор додавання рядків (створює новий об'єкт)
+    String operator+(const String& other) const {
+        String result(*this);     // Копіювання поточного об'єкта
+        return result += other;     // Додавання другого рядка
+    }
+    
+    // Оператор додавання символа до рядка (створює новий об'єкт)
+    String operator+(T ch) const {
+        String result(*this);     // Копіювання поточного об'єкта
+        return result += ch;
+    }
+    
+    // Оператор порівняння на рівність
+    bool operator==(const String& other) const {
+        if (length_ != other.length_) return false;
+        for (size_t i = 0; i < length_; i++)
+            if (data_[i] != other.data_[i]) return false;
+        return true;
+    }
+    
+       // Оператор "менше": лексикографічне порівняння рядків
+    bool operator<(const String& other) const {
+        size_t minLen = min(length_, other.length_);
+        for (size_t i = 0; i < minLen; i++) {
+            if (data_[i] < other.data_[i]) return true;
+            if (data_[i] > other.data_[i]) return false;
+        }
+        return length_ < other.length_;
+    }
+    
+    // Оператор "не дорівнює"
+    bool operator!=(const String& other) const { return !(*this == other); }
+    
+    // Оператор "більше"
+    bool operator>(const String& other) const { return other < *this; }
+    
+    // Оператор "менше або дорівнює"
+    bool operator<=(const String& other) const { return !(*this > other); }
+    
+    // Оператор "більше або дорівнює"
+    bool operator>=(const String& other) const { return !(*this < other); }
+    
+    // Оператор множення рядка на число: повторення рядка count разів
+    String operator*(int count) const {
+        if (count <= 0) return String();
+        String result;
+        for (int i = 0; i < count; i++) result += *this;
+        return result;
+    }
+    
+    // Метод для отримання довжини рядка
+    size_t length() const { return length_; }
+
+    // Метод перевірки, чи рядок порожній
+    bool empty() const { return length_ == 0; }
+
+    // Метод очищення рядка
+    void clear() { *this = String(); }
+
+    // Метод виділення підрядка
+    String substr(size_t pos, size_t len) const {
+        if (pos > length_ || pos + len > length_) // Перевірка на допустимість діапазону
+            throw out_of_range("Invalid substring range");
+        String result;
+        result.length_ = len;
+        result.data_ = new T[len + 1];
+        for (size_t i = 0; i < len; i++) result.data_[i] = data_[pos + i];
+        result.data_[len] = T();
+        return result;
+    }
+
+    // Метод трансформації рядка на місці за допомогою об'єкта-трансформера
+    void apply(const Transformer<T>& t) {
+        for (size_t i = 0; i < length_; i++) data_[i] = t(data_[i]);
+    }
+
+    // Метод, що повертає новий трансформований рядок (не змінюючи поточний)
+    String mapped(const Transformer<T>& t) const {
+        String result(*this); // Копія поточного рядка
+        result.apply(t);        // Трансформація копії
+        return result;
+    }
+    
+    // Універсальний метод трансформації (повертає новий трансформований рядок)
+    template <typename F>
+    String transform(const F& f) const {
+        String result(*this);
+        result.modify(f);
+        return result;
+    }
+    
+    // Універсальний метод модифікації (змінює поточний рядок)
+    template <typename F>
+    void modify(const F& f) {
+        for (size_t i = 0; i < length_; i++) data_[i] = f(data_[i]);
+    }
+    
+    // Звільнення динамічної пам’яті
+    ~String() { delete[] data_; }
+    
+    // Оператор виводу: дозволяє використовувати cout << String
+    friend ostream& operator<<(ostream& os, const String& str) {
+        for (size_t i = 0; i < str.length_; i++) os << str.data_[i];
+        return os;
+    }
+    
+    // Оператор вводу: дозволяє використовувати cin >> String
+    friend istream& operator>>(istream& is, String& str) {
+        char buffer[1024];
+        is >> buffer;
+        str = String(buffer);
+        return is;
+    }
+};
+
+// Оператор додавання символа + рядка
+template<typename T>
+String<T> operator+(T ch, const String<T>& str) {
+    String<T> result;
+    result += ch;
+    result += str;
+    return result;
+}
+
+// Функція для створення рядка з діапазону вказівників
+template <typename T>
+String<T> make_stringFromTwoPointers(const T* begin, const T* end) {
+    return String<T>(begin, end);
+}
+
+void displayMenu() {
+    cout << "\nString operations menu:\n"
+         << "1. Create new string\n"
+         << "2. Concatenate strings\n"
+         << "3. Compare strings\n"
+         << "4. Transform string\n"
+         << "5. Get substring\n"
+         << "6. Repeat string\n" 
+         << "7. Display string info\n" 
+         << "8. Exit\n" 
+         << "Choose option: ";
+}
+
+int main() {
+    String<char> str1, str2; 
+    int choice;
+    
+    do {
+        displayMenu();
+        cin >> choice;
+        cin.ignore();
+        
+        switch(choice) {
+            case 1: { // Створення нового рядка
+                cout << "Enter a string: ";
+                cin >> str1;
+                cout << "String created: " << str1 << endl;
+                break;
+            }
+            case 2: { // Конкатенація (додавання) рядків
+                cout << "Enter another string to concatenate: ";
+                cin >> str2;
+                str1 += str2;
+                cout << "Result: " << str1 << endl;
+                break;
+            }
+            case 3: { // Порівняння рядків
+                cout << "Enter string to compare: ";
+                cin >> str2;
+                cout << str1 << " == " << str2 << ": " << (str1 == str2) << endl;
+                cout << str1 << " != " << str2 << ": " << (str1 != str2) << endl;
+                cout << str1 << " <  " << str2 << ": " << (str1 < str2) << endl;
+                cout << str1 << " >  " << str2 << ": " << (str1 > str2) << endl;
+                break;
+            }
+            case 4: { // Трансформація рядка
+                cout << "Choose transformation:\n"
+                     << "1. To uppercase\n2. To lowercase\n3. To stars\n"
+                     << "4. Shift characters\n5. To 'x'\nChoice: ";
+                int trans;
+                cin >> trans;
+                
+                switch(trans) {
+                    case 1: str1.apply(ToUpper()); break;
+                    case 2: str1.apply(ToLower()); break; 
+                    case 3: str1.apply(ToStar()); break; 
+                    case 4: str1.modify(Shift()); break;
+                    case 5: str1.modify(ToX()); break;
+                    default: cout << "Invalid choice!\n";
+                }
+                cout << "Transformed string: " << str1 << endl;
+                break;
+            }
+            case 5: {
+                size_t pos, len;
+                cout << "Enter position and length: ";
+                cin >> pos >> len;
+                try {
+                    // Спроба отримати підрядок з позиції `pos` довжиною `len`
+                    String<char> sub = str1.substr(pos, len);
+                    cout << "Substring: " << sub << endl;
+                } catch(const exception& e) {
+                    // Обробка винятків (наприклад, якщо діапазон некоректний)
+                    cout << "Error: " << e.what() << endl;
+                }
+                break;
+            }
+            case 6: {
+                int count;
+                cout << "Enter repeat count: ";
+                cin >> count;
+                // Повторення рядка задану кількість разів
+                cout << "Result: " << (str1 * count) << endl;
+                break;
+            }
+            case 7: {
+                // Вивід інформації про рядок: його значення, довжину та чи він порожній
+                cout << "String: " << str1 
+                     << "\nLength: " << str1.length()
+                     << "\nEmpty: " << (str1.empty() ? "Yes" : "No") << endl;
+                break;
+            }
+            case 8: {
+                // Завершення програми
+                cout << "Exit the program.\n";
+                break;
+            }
+            default: {
+                // Обробка некоректного вибору пункту меню
+                cout << "Invalid choice!\n";
+            }
+        }
+    } while(choice != 8);
+    
+    return 0;
+}
